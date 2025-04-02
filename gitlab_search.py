@@ -1,98 +1,57 @@
 import requests
-import json
 import csv
-import pandas as pd
+import json
 
-# GitLab Configuration
-GITLAB_URL = "https://gitlab.com"  # Change if using a self-hosted GitLab instance
-PRIVATE_TOKEN = "your_private_token"  # Replace with your GitLab API token
-SEARCH_KEYWORD = "password"  # Change to the keyword you want to search
+# GitLab API Settings
+GITLAB_URL = "https://gitlab.com"  # Change if using self-hosted GitLab
+PRIVATE_TOKEN = "your_gitlab_api_token"  # Replace with your GitLab API token
+SEARCH_TERM = "your_search_keyword"  # Replace with the keyword to search
 
-# Set API Headers
-HEADERS = {"Private-Token": PRIVATE_TOKEN}
+# Headers for authentication
+HEADERS = {"PRIVATE-TOKEN": PRIVATE_TOKEN}
 
-# Function to fetch all projects from GitLab
-def get_all_projects():
-    """
-    Fetches all repositories (projects) from the GitLab instance.
-
-    Returns:
-        List of project dictionaries.
-    """
-    projects = []
-    url = f"{GITLAB_URL}/api/v4/projects?per_page=100"
-    
-    while url:
-        response = requests.get(url, headers=HEADERS)
-        if response.status_code != 200:
-            print("❌ Error fetching project list:", response.text)
-            return []
+def global_search():
+    """Search for a keyword globally across all GitLab projects"""
+    search_results = []
+    page = 1
+    while True:
+        response = requests.get(f"{GITLAB_URL}/api/v4/search", headers=HEADERS, params={"scope": "blobs", "search": SEARCH_TERM, "page": page, "per_page": 100})
         
-        projects.extend(response.json())
-        url = response.links.get("next", {}).get("url")  # Check if there's a next page
-    
-    return projects
-
-# Function to search for a keyword in a specific GitLab project
-def search_in_project(project_id):
-    """
-    Searches for a keyword within a given GitLab project.
-
-    Args:
-        project_id (int): The ID of the GitLab project.
-
-    Returns:
-        List of search results containing file paths and matching lines.
-    """
-    url = f"{GITLAB_URL}/api/v4/projects/{project_id}/search?scope=blobs&search={SEARCH_KEYWORD}"
-    response = requests.get(url, headers=HEADERS)
-    
-    if response.status_code != 200:
-        print(f"❌ Error searching in project {project_id}: {response.text}")
-        return []
-    
-    return response.json()
-
-# Function to save results to JSON
-def save_to_json(results, filename="gitlab_search_results.json"):
-    with open(filename, "w", encoding="utf-8") as f:
-        json.dump(results, f, indent=4, ensure_ascii=False)
-    print(f"✅ Results saved to {filename}")
-
-# Function to save results to CSV
-def save_to_csv(results, filename="gitlab_search_results.csv"):
-    df = pd.DataFrame(results)
-    df.to_csv(filename, index=False, encoding="utf-8")
-    print(f"✅ Results saved to {filename}")
-
-# Main function to execute the search
-def main():
-    """
-    Fetches all repositories, searches for the specified keyword, 
-    and saves the results in JSON and CSV formats.
-    """
-    projects = get_all_projects()
-    if not projects:
-        print("No projects found.")
-        return
-
-    print(f"🔍 Searching for keyword '{SEARCH_KEYWORD}' in {len(projects)} repositories...")
-
-    result = []
-    for project in projects:
-        search_results = search_in_project(project["id"])
-        for item in search_results:
-            result.append({
-                "project": project["name"],
-                "file": item["path"],
-                "line": item.get("data", "").strip()
+        if response.status_code != 200:
+            print(f"Error during search: {response.text}")
+            break
+        
+        results = response.json()
+        if not results:
+            break
+        
+        for result in results:
+            search_results.append({
+                "project_name": result.get("project", {}).get("name"),
+                "project_url": result.get("project", {}).get("web_url"),
+                "file_path": result.get("path"),
+                "line_number": result.get("startline"),
+                "snippet": result.get("data")
             })
+        
+        page += 1
+    return search_results
+
+def main():
+    """Main function to perform global search and export results"""
+    all_results = global_search()
     
-    if result:
-        save_to_json(result)
-        save_to_csv(result)
-    else:
-        print("❌ No results found.")
+    # Save to JSON
+    with open("gitlab_global_search_results.json", "w", encoding="utf-8") as json_file:
+        json.dump(all_results, json_file, indent=4)
+    
+    # Save to CSV
+    with open("gitlab_global_search_results.csv", "w", encoding="utf-8", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=["project_name", "project_url", "file_path", "line_number", "snippet"])
+        writer.writeheader()
+        writer.writerows(all_results)
+    
+    print("✅ Global search completed. Results saved to JSON and CSV.")
 
 if __name__ == "__main__":
     main()
